@@ -1,0 +1,9 @@
+.venv/
+venv/
+build/
+dist/
+build-*.spec
+process_image.py
+__pycache__/
+*.pyc
+font-preview.png

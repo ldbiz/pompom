@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "pompom",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pompom.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "uv sync",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "pythonArgs": ["-Xfrozen_modules=off"],
+      "subProcess": false,
+      "justMyCode": true
+    },
+    {
+      "name": "pompom (run, no debugger)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe pompom.py",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "uv sync"
+    }
+  ]
+}
