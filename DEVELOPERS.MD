@@ -1,5 +1,7 @@
 # Technical Information
 
+## NB. PomPom is feature-complete and is now in bug-fix and security-update mode. Please do not submit issues or PRs that request or add new functionality.
+
 ## Run from source
 
 ```bash
