@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pompom.constants import _DING_PATH, _TICKTOCK_PATH
 from pompom.services.sound_files import (
@@ -98,6 +99,83 @@ class SoundFilesTests(unittest.TestCase):
 
         self.assertFalse(has_custom(SoundKind.TICK, custom_dir=self.custom_dir))
         self.assertFalse(has_custom(SoundKind.BELL, custom_dir=self.custom_dir))
+
+    def test_install_mkdir_failure_raises_value_error(self) -> None:
+        source = self.custom_dir / "source.wav"
+        source.write_bytes(b"RIFF")
+        with patch.object(Path, "mkdir", side_effect=OSError("denied")):
+            with self.assertRaises(ValueError) as ctx:
+                install_custom(SoundKind.TICK, source, custom_dir=self.custom_dir)
+        self.assertEqual(str(ctx.exception), "Could not save the custom sound.")
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+
+    def test_install_copy_failure_raises_value_error(self) -> None:
+        source = self.custom_dir / "source.wav"
+        source.write_bytes(b"RIFF")
+        with patch("pompom.services.sound_files.shutil.copyfile", side_effect=OSError("denied")):
+            with self.assertRaises(ValueError) as ctx:
+                install_custom(SoundKind.TICK, source, custom_dir=self.custom_dir)
+        self.assertEqual(str(ctx.exception), "Could not save the custom sound.")
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+
+    def test_install_copy_failure_preserves_existing_custom(self) -> None:
+        existing = self.custom_dir / "ticktock.wav"
+        self.custom_dir.mkdir(parents=True, exist_ok=True)
+        existing.write_bytes(b"KEEP")
+        source = self.custom_dir / "source.wav"
+        source.write_bytes(b"NEW")
+
+        with patch("pompom.services.sound_files.shutil.copyfile", side_effect=OSError("denied")):
+            with self.assertRaises(ValueError):
+                install_custom(SoundKind.TICK, source, custom_dir=self.custom_dir)
+
+        self.assertEqual(existing.read_bytes(), b"KEEP")
+
+    def test_install_temp_cleanup_failure_does_not_mask_copy_error(self) -> None:
+        source = self.custom_dir / "source.wav"
+        source.write_bytes(b"RIFF")
+
+        def unlink_raises(self, missing_ok: bool = False) -> None:  # type: ignore[no-untyped-def]
+            if str(self).endswith(".tmp"):
+                raise OSError("cleanup failed")
+            return Path.unlink(self, missing_ok=missing_ok)
+
+        with patch("pompom.services.sound_files.shutil.copyfile", side_effect=OSError("denied")):
+            with patch.object(Path, "unlink", unlink_raises):
+                with self.assertRaises(ValueError) as ctx:
+                    install_custom(SoundKind.TICK, source, custom_dir=self.custom_dir)
+
+        self.assertEqual(str(ctx.exception), "Could not save the custom sound.")
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+        self.assertEqual(ctx.exception.__cause__.args[0], "denied")
+
+    def test_reset_delete_failure_raises_value_error(self) -> None:
+        managed = managed_path(SoundKind.TICK, custom_dir=self.custom_dir)
+        self.custom_dir.mkdir(parents=True, exist_ok=True)
+        managed.write_bytes(b"CUSTOM")
+
+        with patch.object(Path, "unlink", side_effect=OSError("denied")):
+            with self.assertRaises(ValueError) as ctx:
+                reset_custom(SoundKind.TICK, custom_dir=self.custom_dir)
+
+        self.assertEqual(str(ctx.exception), "Could not reset the custom sound.")
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+        self.assertTrue(managed.is_file())
+
+    def test_reset_missing_managed_sound_is_noop(self) -> None:
+        reset_custom(SoundKind.BELL, custom_dir=self.custom_dir)
+
+    def test_reset_all_delete_failure_raises_value_error(self) -> None:
+        managed = managed_path(SoundKind.TICK, custom_dir=self.custom_dir)
+        self.custom_dir.mkdir(parents=True, exist_ok=True)
+        managed.write_bytes(b"CUSTOM")
+
+        with patch.object(Path, "unlink", side_effect=OSError("denied")):
+            with self.assertRaises(ValueError) as ctx:
+                reset_all_custom(custom_dir=self.custom_dir)
+
+        self.assertEqual(str(ctx.exception), "Could not reset the custom sound.")
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
 
 
 if __name__ == "__main__":

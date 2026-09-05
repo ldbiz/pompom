@@ -57,6 +57,14 @@ def resolve_sound_path(kind: SoundKind, custom_dir: Path | None = None) -> Path:
     return _FACTORY_PATHS[kind]
 
 
+def _remove_temp_silently(path: Path) -> None:
+    """Remove a temporary file without masking an earlier operation error."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def install_custom(
     kind: SoundKind,
     source: Path | str,
@@ -71,22 +79,26 @@ def install_custom(
         raise ValueError("The selected file could not be read.")
 
     dest_dir = custom_sounds_dir(custom_dir)
-    dest_dir.mkdir(parents=True, exist_ok=True)
     managed = managed_path(kind, custom_dir)
     temp = dest_dir / f".{managed.name}.{uuid.uuid4().hex}.tmp"
     try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, temp)
         os.replace(temp, managed)
     except OSError as exc:
-        temp.unlink(missing_ok=True)
+        _remove_temp_silently(temp)
         raise ValueError("Could not save the custom sound.") from exc
 
 
 def reset_custom(kind: SoundKind, *, custom_dir: Path | None = None) -> None:
     """Remove the managed custom copy for *kind*."""
     managed = managed_path(kind, custom_dir)
-    if managed.is_file():
+    if not managed.is_file():
+        return
+    try:
         managed.unlink()
+    except OSError as exc:
+        raise ValueError("Could not reset the custom sound.") from exc
 
 
 def reset_all_custom(*, custom_dir: Path | None = None) -> None:
