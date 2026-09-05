@@ -52,6 +52,12 @@ class AppSettings:
     def set_ticking_enabled(self, v: bool) -> None:
         self._s.setValue("ticking_enabled", v)
 
+    def bell_enabled(self) -> bool:
+        return self._s.value("bell_enabled", True, type=bool)
+
+    def set_bell_enabled(self, v: bool) -> None:
+        self._s.setValue("bell_enabled", v)
+
     def momentum_enabled(self) -> bool:
         return self._s.value("momentum_enabled", False, type=bool)
 
