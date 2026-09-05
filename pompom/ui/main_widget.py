@@ -47,6 +47,12 @@ from ..constants import (
 from ..models.tasks import TaskQueue
 from ..platform.win_autostart import set_start_with_windows
 from ..services.audio import AudioService
+from ..services.sound_files import (
+    SoundKind,
+    install_custom,
+    reset_all_custom,
+    reset_custom,
+)
 from ..settings import AppSettings
 from ..state import UIState
 from .options_dialog import OptionsPanel
@@ -396,8 +402,9 @@ class PompomWidget(QWidget):
         self._audio.stop_countdown_sound()
 
     def play_timer_complete_sound(self) -> None:
-        """Play the completion bell once, unless muted."""
-        self._audio.play_timer_complete_sound(self._settings.muted())
+        """Play the completion bell once, unless muted or bell is disabled."""
+        muted = self._settings.muted() or not self._settings.bell_enabled()
+        self._audio.play_timer_complete_sound(muted)
 
     def _update_audio_state(self) -> None:
         """Start or stop ticktock based on running, mute, and ticking preference."""
@@ -409,6 +416,77 @@ class PompomWidget(QWidget):
             self.start_countdown_sound()
         else:
             self.stop_countdown_sound()
+
+    def _refresh_sounds_panel(self) -> None:
+        if self._options_panel is None:
+            return
+        sounds = self._options_panel.sounds_panel_widget()
+        if sounds is not None:
+            sounds.refresh_state()
+
+    def _clear_sound_sources(self, kinds: list[SoundKind]) -> None:
+        if SoundKind.TICK in kinds:
+            self._audio.clear_tick_source()
+        if SoundKind.BELL in kinds:
+            self._audio.clear_ding_source()
+
+    def _reload_sound_sources(self, kinds: list[SoundKind]) -> None:
+        if SoundKind.TICK in kinds:
+            self._audio.reload_tick_source()
+        if SoundKind.BELL in kinds:
+            self._audio.reload_ding_source()
+
+    def _on_sound_install_requested(self, kind: SoundKind, path: str) -> None:
+        self._orchestrate_sound_change(
+            kinds=[kind],
+            install={kind: path},
+        )
+
+    def _on_sound_reset_requested(self, kind: SoundKind) -> None:
+        self._orchestrate_sound_change(
+            kinds=[kind],
+            reset_kinds=[kind],
+        )
+
+    def _on_sound_reset_all_requested(self) -> None:
+        self._orchestrate_sound_change(
+            kinds=[SoundKind.TICK, SoundKind.BELL],
+            reset_all=True,
+        )
+
+    def _orchestrate_sound_change(
+        self,
+        *,
+        kinds: list[SoundKind],
+        install: dict[SoundKind, str] | None = None,
+        reset_kinds: list[SoundKind] | None = None,
+        reset_all: bool = False,
+    ) -> None:
+        install = install or {}
+        reset_kinds = reset_kinds or []
+        reload_kinds = (
+            [SoundKind.TICK, SoundKind.BELL] if reset_all else kinds
+        )
+
+        self._clear_sound_sources(kinds)
+        op_error: str | None = None
+        try:
+            if reset_all:
+                reset_all_custom()
+            else:
+                for kind in reset_kinds:
+                    reset_custom(kind)
+                for kind, source_path in install.items():
+                    install_custom(kind, source_path)
+        except ValueError as exc:
+            op_error = str(exc)
+        finally:
+            self._reload_sound_sources(reload_kinds)
+            self._update_audio_state()
+            self._refresh_sounds_panel()
+
+        if op_error is not None:
+            QMessageBox.warning(self, "Sounds", op_error)
 
     # ── Cycle helpers ─────────────────────────────────────────────────────────
 
@@ -643,7 +721,17 @@ class PompomWidget(QWidget):
             self._options_panel = OptionsPanel(self._settings)
             self._options_panel.accepted.connect(self._apply_options_panel)
             self._options_panel.ticking_changed.connect(self._on_ticking_changed)
+            self._options_panel.bell_changed.connect(self._on_bell_changed)
             self._options_panel.mute_changed.connect(self._toggle_mute)
+            self._options_panel.sound_install_requested.connect(
+                self._on_sound_install_requested
+            )
+            self._options_panel.sound_reset_requested.connect(
+                self._on_sound_reset_requested
+            )
+            self._options_panel.sound_reset_all_requested.connect(
+                self._on_sound_reset_all_requested
+            )
             self._options_panel.user_moved.connect(self._on_options_user_moved)
         self._options_user_placed = False
         self._options_panel.reload_settings()
@@ -676,6 +764,10 @@ class PompomWidget(QWidget):
         """Apply ticking preference immediately while Options is open."""
         self._settings.set_ticking_enabled(enabled)
         self._update_audio_state()
+
+    def _on_bell_changed(self, enabled: bool) -> None:
+        """Apply bell preference immediately while Options is open."""
+        self._settings.set_bell_enabled(enabled)
 
     def _ensure_on_screen(self, min_visible: int = 48) -> None:
         """Guarantee a graspable portion of the widget stays on screen.

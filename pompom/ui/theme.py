@@ -16,7 +16,7 @@ def _qss_url(path) -> str:
 
 
 PANEL_STYLE = f"""
-QWidget#TaskPanel, QWidget#OptionsPanel {{
+QWidget#TaskPanel, QWidget#OptionsPanel, QWidget#SoundsPanel {{
     background: #1E1010;
     border-radius: 10px;
 }}
@@ -60,6 +60,7 @@ QPushButton {{
 }}
 QPushButton:hover  {{ background: #3C2020; }}
 QPushButton:pressed {{ background: #4A2828; }}
+QPushButton:disabled {{ color: #6A4848; background: #241414; border-color: #3A2020; }}
 QPushButton:checked {{ background: #3A2828; color: #E0C0A0; border-color: #7A5040; }}
 QCheckBox {{
     color: #C0A0A0;

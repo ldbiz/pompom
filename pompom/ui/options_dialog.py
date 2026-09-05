@@ -6,6 +6,7 @@ from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import _APP_VERSION
+from ..services.sound_files import SoundKind, has_custom
 from ..settings import AppSettings
 from .theme import PANEL_STYLE, paint_floating_panel
 from .window_utils import (
@@ -142,6 +144,141 @@ class AboutPanel(QWidget):
         super().keyPressEvent(event)
 
 
+class SoundsPanel(QWidget):
+    """Floating panel for choosing and resetting custom sounds."""
+
+    install_requested = Signal(SoundKind, str)
+    reset_requested = Signal(SoundKind)
+    reset_all_requested = Signal()
+
+    def __init__(self, settings: AppSettings) -> None:
+        super().__init__()
+        self._settings = settings
+        self.setObjectName("SoundsPanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        init_floating_window(self, always_on_top=settings.always_on_top())
+        self.setFixedWidth(320)
+        self.setStyleSheet(PANEL_STYLE)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(0)
+
+        inner = QWidget(self)
+        inner.setObjectName("SoundsPanel")
+        inner.setStyleSheet(
+            "QWidget#SoundsPanel { background: #1E1010; border-radius: 10px; }"
+        )
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        outer.addWidget(inner)
+
+        header = _DragHeader()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Sounds")
+        title.setObjectName("header")
+        title.setStyleSheet(
+            "QLabel { color: #9A7070; font-size: 12px; font-weight: 500; background: transparent; }"
+        )
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(20, 20)
+        close_btn.setStyleSheet("QPushButton { padding: 0; }")
+        close_btn.clicked.connect(self.hide)
+        header_layout.addWidget(close_btn)
+        layout.addWidget(header)
+
+        self._tick_state, self._tick_reset = self._add_sound_row(
+            layout, "Ticking", SoundKind.TICK
+        )
+        self._bell_state, self._bell_reset = self._add_sound_row(
+            layout, "Bell", SoundKind.BELL
+        )
+
+        reset_all_btn = QPushButton("Reset all to defaults")
+        reset_all_btn.clicked.connect(self.reset_all_requested.emit)
+        layout.addWidget(reset_all_btn)
+
+        close = QPushButton("Close")
+        close.clicked.connect(self.hide)
+        layout.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+        self.refresh_state()
+        self.adjustSize()
+
+    def _add_sound_row(
+        self,
+        layout: QVBoxLayout,
+        label: str,
+        kind: SoundKind,
+    ) -> tuple[QLabel, QPushButton]:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        name = QLabel(label)
+        name.setFixedWidth(52)
+        row.addWidget(name)
+        state = QLabel("Default")
+        state.setFixedWidth(52)
+        row.addWidget(state)
+        choose_btn = QPushButton("Choose…")
+        choose_btn.clicked.connect(lambda: self._choose_sound(kind))
+        row.addWidget(choose_btn)
+        reset_btn = QPushButton("Reset")
+        reset_btn.clicked.connect(
+            lambda: self.reset_requested.emit(kind)
+        )
+        row.addWidget(reset_btn)
+        layout.addLayout(row)
+        return state, reset_btn
+
+    def _choose_sound(self, kind: SoundKind) -> None:
+        path, _selected = QFileDialog.getOpenFileName(
+            self,
+            "Choose a WAV file",
+            "",
+            "WAV files (*.wav)",
+        )
+        if path:
+            self.install_requested.emit(kind, path)
+
+    def refresh_state(self) -> None:
+        """Update Default/Custom labels and Reset enabled state."""
+        self._set_row_state(self._tick_state, self._tick_reset, SoundKind.TICK)
+        self._set_row_state(self._bell_state, self._bell_reset, SoundKind.BELL)
+
+    def _set_row_state(
+        self,
+        state_label: QLabel,
+        reset_btn: QPushButton,
+        kind: SoundKind,
+    ) -> None:
+        custom = has_custom(kind)
+        state_label.setText("Custom" if custom else "Default")
+        reset_btn.setEnabled(custom)
+
+    def apply_window_behavior(self) -> None:
+        apply_window_behavior(
+            self,
+            always_on_top=self._settings.always_on_top(),
+            show_on_all_desktops=self._settings.show_on_all_desktops(),
+        )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        schedule_desktop_sync(
+            self, show_on_all_desktops=self._settings.show_on_all_desktops()
+        )
+        clamp_to_screen(self)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            return
+        super().keyPressEvent(event)
+
+
 class OptionsPanel(QWidget):
     """Floating options panel; chains alongside the timer and task panel."""
 
@@ -149,12 +286,17 @@ class OptionsPanel(QWidget):
     rejected = Signal()
     user_moved = Signal()
     ticking_changed = Signal(bool)
+    bell_changed = Signal(bool)
     mute_changed = Signal(bool)
+    sound_install_requested = Signal(SoundKind, str)
+    sound_reset_requested = Signal(SoundKind)
+    sound_reset_all_requested = Signal()
 
     def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._about_panel: AboutPanel | None = None
+        self._sounds_panel: SoundsPanel | None = None
         self.setObjectName("OptionsPanel")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         init_floating_window(self, always_on_top=settings.always_on_top())
@@ -217,7 +359,11 @@ class OptionsPanel(QWidget):
         self._ticking_chk.toggled.connect(self.ticking_changed.emit)
         layout.addWidget(self._ticking_chk)
 
-        self._mute_chk = QCheckBox("Mute sounds")
+        self._bell_chk = QCheckBox("Play bell when the timer ends")
+        self._bell_chk.toggled.connect(self.bell_changed.emit)
+        layout.addWidget(self._bell_chk)
+
+        self._mute_chk = QCheckBox("Mute all sounds")
         self._mute_chk.toggled.connect(self._on_mute_toggled)
         layout.addWidget(self._mute_chk)
 
@@ -242,6 +388,9 @@ class OptionsPanel(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(4)
+        sounds_btn = QPushButton("Sounds…")
+        sounds_btn.clicked.connect(self._show_sounds)
+        btn_row.addWidget(sounds_btn)
         about_btn = QPushButton("About…")
         about_btn.clicked.connect(self._show_about)
         btn_row.addWidget(about_btn)
@@ -268,10 +417,13 @@ class OptionsPanel(QWidget):
         self._ticking_chk.blockSignals(True)
         self._ticking_chk.setChecked(settings.ticking_enabled())
         self._ticking_chk.blockSignals(False)
+        self._bell_chk.blockSignals(True)
+        self._bell_chk.setChecked(settings.bell_enabled())
+        self._bell_chk.blockSignals(False)
         self._mute_chk.blockSignals(True)
         self._mute_chk.setChecked(settings.muted())
         self._mute_chk.blockSignals(False)
-        self._sync_ticking_enabled()
+        self._sync_sound_checkboxes()
         self._on_top_chk.setChecked(settings.always_on_top())
         self._all_desktops_chk.setChecked(settings.show_on_all_desktops())
         self._autostart_chk.setChecked(settings.start_with_windows())
@@ -285,6 +437,8 @@ class OptionsPanel(QWidget):
         )
         if self._about_panel is not None:
             self._about_panel.apply_window_behavior()
+        if self._sounds_panel is not None:
+            self._sounds_panel.apply_window_behavior()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -296,29 +450,39 @@ class OptionsPanel(QWidget):
     def accept(self) -> None:
         if self._about_panel is not None:
             self._about_panel.hide()
+        if self._sounds_panel is not None:
+            self._sounds_panel.hide()
         self.hide()
         self.accepted.emit()
 
     def reject(self) -> None:
         if self._about_panel is not None:
             self._about_panel.hide()
+        if self._sounds_panel is not None:
+            self._sounds_panel.hide()
         self.hide()
         self.rejected.emit()
 
     def _on_mute_toggled(self, muted: bool) -> None:
-        self._sync_ticking_enabled()
+        self._sync_sound_checkboxes()
         self.mute_changed.emit(muted)
 
-    def _sync_ticking_enabled(self) -> None:
-        """Mute greys out ticking without clearing its selection."""
-        self._ticking_chk.setEnabled(not self._mute_chk.isChecked())
+    def _sync_sound_checkboxes(self) -> None:
+        """Mute greys out individual sound controls without clearing their selection."""
+        enabled = not self._mute_chk.isChecked()
+        self._ticking_chk.setEnabled(enabled)
+        self._bell_chk.setEnabled(enabled)
 
     def set_mute_checked(self, muted: bool) -> None:
         """Update mute from outside (e.g. tray) without clearing ticking selection."""
         self._mute_chk.blockSignals(True)
         self._mute_chk.setChecked(muted)
         self._mute_chk.blockSignals(False)
-        self._sync_ticking_enabled()
+        self._sync_sound_checkboxes()
+
+    def sounds_panel_widget(self) -> SoundsPanel | None:
+        """Return the Sounds panel if it has been opened."""
+        return self._sounds_panel
 
     def _duration_row(self, label: str, spin: QSpinBox) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -340,6 +504,27 @@ class OptionsPanel(QWidget):
         self._about_panel.show()
         focus_floating_window(self._about_panel)
 
+    def _ensure_sounds_panel(self) -> SoundsPanel:
+        if self._sounds_panel is None:
+            self._sounds_panel = SoundsPanel(self._settings)
+            self._sounds_panel.install_requested.connect(
+                self.sound_install_requested.emit
+            )
+            self._sounds_panel.reset_requested.connect(
+                self.sound_reset_requested.emit
+            )
+            self._sounds_panel.reset_all_requested.connect(
+                self.sound_reset_all_requested.emit
+            )
+        return self._sounds_panel
+
+    def _show_sounds(self) -> None:
+        panel = self._ensure_sounds_panel()
+        panel.refresh_state()
+        panel.move(self.x() + self.width() + 8, self.y())
+        panel.show()
+        focus_floating_window(panel)
+
     @property
     def pomodoro_minutes(self) -> int:
         return self._pom_spin.value()
@@ -359,6 +544,10 @@ class OptionsPanel(QWidget):
     @property
     def ticking_enabled(self) -> bool:
         return self._ticking_chk.isChecked()
+
+    @property
+    def bell_enabled(self) -> bool:
+        return self._bell_chk.isChecked()
 
     @property
     def muted(self) -> bool:
