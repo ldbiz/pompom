@@ -7,7 +7,7 @@ A small always-on-top Pomodoro timer for Windows. A floating red card shows the 
 ## Install
 
 1. Open the [latest GitHub release](https://github.com/ldbiz/pompom/releases/latest).
-2. Download **pompom-1.0.0-setup.exe**.
+2. Download **pompom-1.0.1-setup.exe**.
 3. Run the installer. Installation is per-user and does not need administrator access.
    
 After setup, pompom is in the Start Menu. The installer can also add a desktop shortcut or start pompom with Windows.

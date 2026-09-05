@@ -21,7 +21,7 @@ _N_GAPS = 5
 # Timer display font
 _TIMER_FONT_FAMILY = "Calibri Light"
 
-_APP_VERSION = "1.0.0"
+_APP_VERSION = "1.0.1"
 
 # Settings constants
 _SETTINGS_ORG = "pompom"

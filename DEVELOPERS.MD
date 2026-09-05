@@ -37,4 +37,4 @@ The script finds `ISCC.exe` on `PATH` or in standard install locations. For a
 custom location, set `ISCC_PATH` to the full compiler path first.
 
 The script builds the PyInstaller app first, then writes the installer to
-`dist/installer/pompom-1.0.0-setup.exe`.
+`dist/installer/pompom-1.0.1-setup.exe`.
